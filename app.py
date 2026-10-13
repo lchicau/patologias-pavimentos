@@ -7,14 +7,14 @@ from streamlit_geolocation import streamlit_geolocation
 
 # Configuração da página
 st.set_page_config(
-    page_title="Agente Especialista de Pavimentos", page_icon="🛣️", layout="wide"
+    page_title="Agente IA de identificação de patologias em pavimentos flexíveis", page_icon="🛣️", layout="wide"
 )
 
 st.title(
-    "🛣️ Agente Especialista de Pavimentos (Motor Autónomo Normativo LNEC / IP)"
+    "🛣️ IA de identificação de patologias em pavimentos flexíveis (Normas LNEC/IP)"
 )
 st.write(
-    "Sistema autónomo criado de raiz com base nas normas portuguesas (LNEC,"
+    "Agende de Inteligência Artificial criado com base nas normas portuguesas (LNEC,"
     " JAE, IP). Cálculos baseados em parâmetros reais de engenharia, sem"
     " localizações predefinidas nem valores arbitrários."
 )
