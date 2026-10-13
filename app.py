@@ -1,26 +1,50 @@
 from datetime import datetime
 import os
+import re
 from fpdf import FPDF
 import pandas as pd
+import requests
 import streamlit as st
+from google import genai
+from google.genai import types
 from streamlit_geolocation import streamlit_geolocation
 
 # Configuração da página
 st.set_page_config(
-    page_title="Agente Especialista de Pavimentos", page_icon="🛣️", layout="wide"
+    page_title="Agente de Inspeção de Pavimentos", page_icon="🛣️", layout="wide"
 )
 
 st.title(
-    "🛣️ Agente Especialista de Pavimentos (Motor Autónomo Normativo LNEC / IP)"
+    "🛣️ Agente de Diagnóstico e Reabilitação de Pavimentos (Normas LNEC / IP)"
 )
 st.write(
-    "Sistema autónomo criado de raiz com base nas normas portuguesas (LNEC,"
-    " JAE, IP). Cálculos baseados em parâmetros reais de engenharia, sem"
-    " localizações predefinidas."
+    "Carrega a fotografia da patologia. O agente deteta automaticamente a"
+    " patologia, estima a área, obtém as coordenadas GPS e a **morada real** do"
+    " local, gerando o relatório técnico em PDF."
 )
 
-# 1. Obter a localização automática do dispositivo (GPS)
-st.sidebar.subheader("📍 Geolocalização e Mapa")
+# Inicializar o cliente Gemini
+client = genai.Client()
+
+
+# Função para obter a morada legível a partir do GPS (Geocodificação Reversa)
+def obter_morada_reversa(lat, lon):
+  try:
+    url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=18&addressdetails=1"
+    headers = {"User-Agent": "AgentePavimentosApp/1.0"}
+    response = requests.get(url, headers=headers, timeout=4)
+    if response.status_code == 200:
+      data = response.json()
+      return data.get(
+          "display_name", f"Latitude {lat}, Longitude {lon} (Portugal)"
+      )
+  except Exception:
+    pass
+  return f"Latitude {lat}, Longitude {lon} (Portugal)"
+
+
+# 1. Obter a localização automática do dispositivo (GPS) e Morada
+st.sidebar.subheader("📍 Localização e Morada Real")
 loc = streamlit_geolocation()
 
 localizacao_str = "Localização não detetada (Ativa o GPS no browser)"
@@ -29,152 +53,90 @@ lat_val, lon_val = None, None
 if loc and loc.get("latitude") and loc.get("longitude"):
   lat_val = loc.get("latitude")
   lon_val = loc.get("longitude")
-  localizacao_str = (
-      f"Coordenadas GPS: Latitude {lat_val}, Longitude {lon_val} (Portugal)"
-  )
-  st.sidebar.success("Localização obtida com sucesso!")
+  localizacao_str = obter_morada_reversa(lat_val, lon_val)
+  st.sidebar.success("Localização e morada detetadas com sucesso!")
 
   df_mapa = pd.DataFrame({"lat": [lat_val], "lon": [lon_val]})
-  st.sidebar.map(df_mapa, zoom=15, use_container_width=True)
+  st.sidebar.map(df_mapa, zoom=16, use_container_width=True)
 else:
   st.sidebar.info(
-      "GPS inativo ou não permitido. Nenhuma localização pré-definida aplicada."
+      "Ativa a localização no browser para obter a rua e coordenadas GPS."
   )
 
-# Data atual do sistema obtida de forma blindada (DD/MM/AAAA)
+# Data atual do sistema em tempo real (DD/MM/AAAA)
 agora = datetime.now()
 data_atual = f"{agora.day:02d}/{agora.month:02d}/{agora.year}"
 
 
-# --- CLASSE DO AGENTE ESPECIALISTA (CÁLCULO PARAMÉTRICO REAL) ---
-class AgenteEspecialistaPavimentos:
+# Função segura com fallback de modelos para evitar erros 503/429
+def chamar_gemini_com_fallback(
+    prompt, imagem_bytes=None, mime_type=None, system_instruction=None
+):
+  modelos_a_tentar = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.8-flash"]
 
-  def __init__(
-      self, patologia, severidade, area_m2, classe_trafego, localizacao, data
-  ):
-    self.patologia = patologia
-    self.severidade = severidade
-    self.area_m2 = area_m2
-    self.classe_trafego = classe_trafego
-    self.localizacao = localizacao
-    self.data = data
+  config = types.GenerateContentConfig(temperature=0.2)
+  if system_instruction:
+    config.system_instruction = system_instruction
 
-  def gerar_diagnostico(self):
-    diagnosticos = {
-        "Fendilhamento por Fadiga (CRA)": (
-            "Apresenta rede de fissuras interligadas em forma de crosta de"
-            " tartaruga, indício claro de fadiga da estrutura do pavimento sob"
-            " acções repetidas de carga e/ou enfraquecimento da fundação."
-        ),
-        "Deformação Permanente / Abatimento (RUT)": (
-            "Regista sulcos ou abatimentos longitudinais na trajetória das"
-            " rodas, resultantes da consolidação plástica ou corte nas camadas"
-            " inferiores ou instabilidade da mistura betuminosa."
-        ),
-        "Desagregação / Perda de Material (RAV)": (
-            "Observa-se perda de agregado na superfície e desgaste da matriz"
-            " betuminosa, potenciado por envelhecimento do ligante e acção"
-            " meteorológica."
-        ),
-        "Buracos / Cavas (POT)": (
-            "Cavidade de gume vivo com remoção total de material das camadas"
-            " superiores e penetração de água na base, exigindo intervenção"
-            " imediata."
-        ),
-    }
-    return diagnosticos.get(
-        self.patologia, "Patologia estrutural ou superficial identificada."
-    )
+  contents = []
+  if imagem_bytes and mime_type:
+    contents.append(types.Part.from_bytes(data=imagem_bytes, mime_type=mime_type))
+  contents.append(prompt)
 
-  def calcular_reparacao(self):
-    if self.severidade == "Alta" or "Buracos" in self.patologia:
-      espessura_cm = 6.0
-      espessura_str = "6 cm"
-      camada_aplicacao = (
-          "Fresagem de 6 cm, varrimento mecânico, aplicação de emulsão"
-          " betuminosa de pitada C60B3 (taxa de 0.6 kg/m²) e Execução de Camada"
-          " de Desgaste em Betão Bituminoso (AC 14 surf) com betume modificado"
-          " PmB 45/80-50."
+  for modelo in modelos_a_tentar:
+    try:
+      response = client.models.generate_content(
+          model=modelo, contents=contents, config=config
       )
-    else:
-      espessura_cm = 4.0
-      espessura_str = "4 cm"
-      camada_aplicacao = (
-          "Fresagem de desbastamento de 4 cm, rega de colagem com emulsão"
-          " catiónica C60B3 (0.5 kg/m²) e aplicação de nova camada de desgaste"
-          " (AC 14 surf)."
-      )
-    return espessura_cm, espessura_str, camada_aplicacao
+      return response.text
+    except Exception as e:
+      if (
+          "503" in str(e)
+          or "UNAVAILABLE" in str(e)
+          or "429" in str(e)
+          or "NOT_FOUND" in str(e)
+      ):
+        continue
+      else:
+        raise e
+  raise Exception(
+      "Servidores temporariamente ocupados ou limite de cota atingido. Tenta"
+      " novamente em instantes."
+  )
 
-  def calcular_orcamento_parametrico(self):
-    espessura_cm, _, _ = self.calcular_reparacao()
-    espessura_m = espessura_cm / 100.0
 
-    volume_m3 = self.area_m2 * espessura_m
-    massa_ton = volume_m3 * 2.45
+# Análise Inteligente Integrada (Identifica patologia, severidade e área automaticamente)
+def analisar_patologia_automaticamente(
+    imagem_bytes, mime_type, classe_trafego, localizacao, data_envio
+):
+  system_instruction = f"""Tu és um Engenheiro Civil perito em pavimentação flexível e patologias de pavimentos betuminosos em Portugal, com profundo conhecimento das normas do LNEC e Infraestruturas de Portugal (IP).
 
-    custo_fresagem = self.area_m2 * espessura_cm * 1.10
-    custo_mistura = massa_ton * 95.00
-    custo_emulsao = self.area_m2 * 1.65
-    custo_seguranca = 120.00
+    REGRAS OBRIGATÓRIAS:
+    1. Utiliza estritamente a Data de Avaliação: {data_envio}.
+    2. Analisa a imagem para identificar autonomamente:
+       - A patologia exata (ex: Fendilhamento por fadiga, Deformação/RUT, Desagregação, Buracos/Cavas).
+       - O nível de severidade (Baixa, Média, Alta).
+       - Uma estimativa rigorosa da área afetada em metros quadrados (m²).
+    3. Calcula o orçamento paramétrico com base na área estimada e preços de mercado em Portugal (incluindo fresagem, emulsão C60B3 e mistura betuminosa AC 14 surf).
+    4. Estrutura o relatório detalhadamente em Markdown.
 
-    custo_total = (
-        custo_fresagem + custo_mistura + custo_emulsao + custo_seguranca
-    )
+    Estrutura obrigatória:
+    1. **Cabeçalho Técnico:** Data: {data_envio} | Local: {localizacao} | Tráfego: {classe_trafego}
+    2. **Diagnóstico e Identificação Automática:** Patologia detetada, severidade e área estimada (m²).
+    3. **Causa Provável:** Fundamentação técnica considerando o tráfego e o meio envolvente.
+    4. **Método de Reparação Recomendado (Normas LNEC/IP):** Espessuras, fresagem e camadas de desgaste.
+    5. **Materiais e Equipamentos Necessários:** Especificações reais (ex: emulsão C60B3, betume).
+    6. **Estimativa Orçamental Paramétrica:** Custos detalhados em euros (€).
+    7. **Manutenção Preventiva / Corretiva Futura.**"""
 
-    return (
-        volume_m3,
-        massa_ton,
-        custo_fresagem,
-        custo_mistura,
-        custo_emulsao,
-        custo_seguranca,
-        custo_total,
-    )
+  prompt = f"""Analisa esta fotografia de pavimento e gera o relatório técnico completo considerando:
+    - Categoria de Tráfego: {classe_trafego}
+    - Localização / Morada: {localizacao}
+    - Data da Avaliação: {data_envio}"""
 
-  def compilar_relatorio(self):
-    diag = self.gerar_diagnostico()
-    _, espessura_str, metodo = self.calcular_reparacao()
-    vol, massa, tf, tm, te, ts, total = self.calcular_orcamento_parametrico()
-
-    relatorio = f"""### RELATÓRIO TÉCNICO DE INSPEÇÃO E REABILITAÇÃO DE PAVIMENTOS
-#### 1. Cabeçalho Técnico
-- Data da Avaliação: {self.data}
-- Localização / Coordenadas: {self.localizacao}
-- Área Afetada Intervenção: {self.area_m2} m²
-- Categoria de Tráfego: {self.classe_trafego}
-
-#### 2. Identificação da Patologia e Severidade
-- Tipologia: {self.patologia}
-- Nível de Severidade: {self.severidade}
-- Diagnóstico Técnico: {diag}
-
-#### 3. Análise de Causas Prováveis
-A patologia decorre da conjugação entre as solicitações impostas pelo tráfego ({self.classe_trafego}) e a suscetibilidade térmica/pluviométrica da região, provocando fadiga ou deformação plástica nas camadas betuminosas.
-
-#### 4. Método de Reparação Recomendado (Normas LNEC / IP)
-- Espessura de Intervenção: {espessura_str}
-- Procedimento Executivo: {metodo}
-
-#### 5. Materiais e Equipamentos Necessários
-- Emulsão Betuminosa: Emulsão catiónica de rotura rápida C60B3.
-- Mistura Bituminosa: Betão bituminoso a quente (AC 14 surf).
-- Equipamentos: Fresadora autopropulsada, vassoura mecânica, cilindro compactador de pneus e cilindro metálico vibratório.
-
-#### 6. Estimativa Orçamental Paramétrica (Cálculo com Base em Quantidades)
-- Volume de Material a Fresar: {vol:.2f} m³
-- Massa de Mistura Bituminosa Necessária: {massa:.2f} toneladas
-- Fresagem de Pavimento: {tf:.2f} €
-- Fornecimento e Aplicação de Mistura Bituminosa (AC 14 surf): {tm:.2f} €
-- Rega de Colagem (Emulsão C60B3): {te:.2f} €
-- Sinalização Temporária e Segurança Local: {ts:.2f} €
-- ESTIMATIVA ORÇAMENTAL TOTAL: {total:.2f} € (IVA não incluído)
-
-#### 7. Recomendações de Manutenção Preventiva
-- Monitorização semestral após a intervenção para deteção precoce de fissuração de junta.
-- Garantir a desobstrução e eficiência dos órgãos de drenagem superficial adjacentes (valetas e aquedutos)."""
-
-    return relatorio
+  return chamar_gemini_com_fallback(
+      prompt, imagem_bytes, mime_type, system_instruction
+  )
 
 
 # --- CLASSE PDF PROFISSIONAL COM MARGENS RIGOROSAS ---
@@ -196,7 +158,7 @@ class PDF(FPDF):
     self.cell(
         0,
         5,
-        "Normas LNEC / IP - Motor Autónomo de Engenharia Civil",
+        "Normas LNEC / IP - Inspeção Multimodal por Inteligência Artificial",
         0,
         1,
         "C",
@@ -210,7 +172,7 @@ class PDF(FPDF):
     self.cell(
         0,
         10,
-        f"Página {self.page_no()} | Processado por Motor Autónomo de Engenharia",
+        f"Página {self.page_no()} | Agente Especialista de Pavimentos",
         0,
         0,
         "C",
@@ -279,27 +241,8 @@ with col1:
     st.image(
         uploaded_file, caption="Fotografia da Patologia", use_container_width=True
     )
-
-  patologia_selecionada = st.selectbox(
-      "Patologia Observada na Imagem:",
-      [
-          "Fendilhamento por Fadiga (CRA)",
-          "Deformação Permanente / Abatimento (RUT)",
-          "Desagregação / Perda de Material (RAV)",
-          "Buracos / Cavas (POT)",
-      ],
-  )
-
-  severidade_selecionada = st.selectbox(
-      "Nível de Severidade:", ["Baixa", "Média", "Alta"]
-  )
-
-  area_m2 = st.number_input(
-      "Área estimada da patologia (m²):",
-      min_value=0.1,
-      value=10.0,
-      step=0.5,
-  )
+    image_bytes = uploaded_file.getvalue()
+    mime_type = uploaded_file.type
 
 with col2:
   opcoes_trafego = [
@@ -312,30 +255,28 @@ with col2:
       "Tipo de Tráfego / Categoria da Via:", opcoes_trafego
   )
 
-  st.text_input(
-      "Localização Detetada (GPS do Dispositivo):", value=localizacao_str
-  )
+  st.text_input("Localização / Morada Detetada:", value=localizacao_str)
   st.info(f"📅 Data da Análise (Sistema): {data_atual}")
+  st.markdown(
+      "ℹ️ **Nota:** A identificação da patologia, severidade e área é feita"
+      " automaticamente pela IA a partir da fotografia."
+  )
 
 if uploaded_file is not None:
-  if st.button("Gerar Relatório Técnico Autónomo (LNEC / IP)"):
+  if st.button("Gerar Relatório Técnico Automático (LNEC / IP)"):
     with st.spinner(
-        "A calcular parâmetros de engenharia e a gerar PDF estruturado..."
+        "A analisar imagem, a obter morada e a calcular parâmetros de"
+        " engenharia..."
     ):
       try:
-        agente = AgenteEspecialistaPavimentos(
-            patologia=patologia_selecionada,
-            severidade=severidade_selecionada,
-            area_m2=area_m2,
-            classe_trafego=classe_trafego,
-            localizacao=localizacao_str,
-            data=data_atual,
+        relatorio_final = analisar_patologia_automaticamente(
+            image_bytes, mime_type, classe_trafego, localizacao_str, data_atual
         )
 
-        relatorio_final = agente.compilar_relatorio()
-
         st.markdown("---")
-        st.markdown("### Relatório Técnico e Orçamental (Motor LNEC/IP)")
+        st.markdown(
+            "### Relatório Técnico e Orçamental (IA + Normas LNEC/IP)"
+        )
         st.markdown(relatorio_final)
 
         timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -350,4 +291,4 @@ if uploaded_file is not None:
         )
 
       except Exception as e:
-        st.error(f"Erro ao gerar o relatório: {e}")
+        st.error(f"Erro ao processar a imagem: {e}")
