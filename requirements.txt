@@ -2,3 +2,4 @@ streamlit
 google-genai
 streamlit-geolocation
 fpdf2
+pandas
