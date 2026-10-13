@@ -2,6 +2,7 @@ from datetime import datetime
 import os
 import re
 from fpdf import FPDF
+import pandas as pd
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -17,15 +18,15 @@ st.title(
 )
 st.write(
     "Carrega a fotografia de uma patologia. O agente obtém a tua localização"
-    " atual, a data real do sistema e gera o relatório técnico com dados"
-    " rigorosos e atuais, permitindo o download direto em PDF."
+    " real com mapa interativo, a data do sistema e gera o relatório técnico"
+    " com PDF formatado."
 )
 
 # Inicializar o cliente Gemini
 client = genai.Client()
 
-# 1. Obter a localização automática do dispositivo (GPS)
-st.sidebar.subheader("📍 Geolocalização do Dispositivo")
+# 1. Obter a localização automática do dispositivo (GPS) e mostrar mapa
+st.sidebar.subheader("📍 Geolocalização e Mapa")
 loc = streamlit_geolocation()
 
 localizacao_str = "Localização não detetada (Ativa o GPS no browser)"
@@ -36,9 +37,13 @@ if loc and loc.get("latitude") and loc.get("longitude"):
       f"Coordenadas GPS: Latitude {lat}, Longitude {lon} (Portugal)"
   )
   st.sidebar.success("Localização obtida com sucesso!")
+
+  # Criar dataframe e mostrar mapa interativo na barra lateral
+  df_mapa = pd.DataFrame({"lat": [lat], "lon": [lon]})
+  st.sidebar.map(df_mapa, zoom=15, use_container_width=True)
 else:
   st.sidebar.info(
-      "Permite o acesso à localização no browser para detetar a região exata."
+      "Permite o acesso à localização no browser para visualizar o mapa."
   )
 
 # Obter a data atual do sistema em tempo real (Formato: DD/MM/AAAA)
@@ -88,7 +93,6 @@ def gerar_pdf_relatorio(texto_relatorio):
   pdf.add_page()
   pdf.set_font("helvetica", size=10)
 
-  # Limpar formatação markdown básica para apresentação limpa no PDF
   for linha in texto_relatorio.split("\n"):
     linha_limpa = (
         linha.replace("**", "").replace("#", "").replace("###", "").strip()
@@ -152,7 +156,6 @@ with col1:
       "Escolhe uma fotografia...", type=["jpg", "jpeg", "png"]
   )
 
-  # Gestão de Estado para a Área Estimada Automaticamente
   if "area_estimada" not in st.session_state:
     st.session_state.area_estimada = 10.0
 
@@ -213,14 +216,10 @@ if uploaded_file is not None:
         st.markdown("### Relatório Técnico e Orçamental Adaptado")
         st.markdown(relatorio)
 
-        # Gerar o nome do ficheiro PDF com o formato AAAAMMDDHHMMSS_PDRV.pdf
         timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
         pdf_filename = f"{timestamp_str}_PDRV.pdf"
-
-        # Converter o relatório gerado em PDF
         pdf_bytes = gerar_pdf_relatorio(relatorio)
 
-        # Disponibilizar botão de download direto
         st.download_button(
             label="📥 Descarregar Relatório em PDF",
             data=pdf_bytes,
