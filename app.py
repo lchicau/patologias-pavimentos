@@ -1,7 +1,10 @@
+from datetime import datetime
 import os
+import re
 import streamlit as st
 from google import genai
 from google.genai import types
+from streamlit_geolocation import streamlit_geolocation
 
 # Configuração da página
 st.set_page_config(
@@ -12,36 +15,82 @@ st.title(
     "🛣️ Agente de Diagnóstico e Reabilitação de Pavimentos (Normas LNEC / IP)"
 )
 st.write(
-    "Carrega a fotografia de uma patologia num pavimento betuminoso. O agente"
-    " adaptará a análise considerando o tipo de tráfego, as especificações"
-    " LNEC/IP e os fatores climáticos e geográficos da região."
+    "Carrega a fotografia de uma patologia. O agente obtém a tua localização"
+    " atual, a data real do sistema e gera o relatório técnico com dados"
+    " rigorosos e atuais."
 )
 
-# Inicializar o cliente Gemini (certifica-te de definir a variável de ambiente GEMINI_API_KEY)
+# Inicializar o cliente Gemini
 client = genai.Client()
 
+# 1. Obter a localização automática do dispositivo (GPS)
+st.sidebar.subheader("📍 Geolocalização do Dispositivo")
+loc = streamlit_geolocation()
 
+localizacao_str = "Localização não detetada (Ativa o GPS no browser)"
+if loc and loc.get("latitude") and loc.get("longitude"):
+  lat = loc.get("latitude")
+  lon = loc.get("longitude")
+  localizacao_str = (
+      f"Coordenadas GPS: Latitude {lat}, Longitude {lon} (Portugal)"
+  )
+  st.sidebar.success("Localização obtida com sucesso!")
+else:
+  st.sidebar.info(
+      "Permite o acesso à localização no browser para detetar a região exata."
+  )
+
+# Obter a data atual do sistema em tempo real (Formato: DD/MM/AAAA)
+data_atual = datetime.now().strftime("%d/%m/%Y")
+
+
+# Função para estimar a área com base na imagem
+def estimar_area_por_imagem(imagem_bytes, mime_type):
+  prompt = (
+      "Analisa esta fotografia de uma patologia num pavimento. Estima"
+      " unicamente a área aproximada afetada em metros quadrados (m²)."
+      " Responde apenas com o valor numérico (ex: 12.5), sem texto adicional."
+  )
+  try:
+    response = client.models.generate_content(
+        model="gemini-3.8-flash",
+        contents=[
+            types.Part.from_bytes(data=imagem_bytes, mime_type=mime_type),
+            prompt,
+        ],
+        config=types.GenerateContentConfig(temperature=0.1),
+    )
+    nums = re.findall(r"\d+\.?\d*", response.text)
+    return float(nums[0]) if nums else 10.0
+  except Exception:
+    return 10.0
+
+
+# Função principal de análise técnica com restrição estricta de dados reais
 def analisar_patologia(
-    imagem_bytes, mime_type, area_m2, classe_trafego, localizacao
+    imagem_bytes, mime_type, area_m2, classe_trafego, localizacao, data_envio
 ):
-  system_instruction = """Tu és um Engenheiro Civil perito em pavimentação flexível e patologias de pavimentos betuminosos, com profundo conhecimento das normativas e especificações técnicas aplicáveis em Portugal, nomeadamente os manuais e cadernos de encargos do LNEC, da antiga Junta Autónoma de Estradas (JAE) e da Infraestruturas de Portugal, I.P. (IP).
+  system_instruction = f"""Tu és um Engenheiro Civil perito em pavimentação flexível e patologias de pavimentos betuminosos, com profundo conhecimento das normativas e especificações técnicas aplicáveis em Portugal (LNEC, antiga JAE e Infraestruturas de Portugal, I.P. - IP).
 
-    Ao analisar a patologia, deves considerar OBRIGATORIAMENTE:
-    1. A classe de tráfego indicada pelo utilizador.
-    2. O contexto climático e geográfico da localização indicada (temperaturas máximas/mínimas, amplitude térmica diurna/anual, pluviosidade e riscos de deformação plástica ou fendilhamento térmico).
+    REGRAS OBRIGATÓRIAS E INEGOCIÁVEIS:
+    1. Utiliza RIGOROSAMENTE a Data de Avaliação fornecida ({data_envio}). É estritamente proibido inventar datas passadas, futuras ou fictícias.
+    2. Considera o contexto climático e geográfico da localização exata obtida por GPS fornecida.
+    3. Baseia a análise exclusivamente nos dados reais fornecidos pelo utilizador e pelo sistema (imagem, área, tráfego, GPS e data atual).
 
-    Geras um relatório técnico detalhado em Markdown com as seguintes secções:
-    1. **Identificação da Patologia:** Nome técnico e nível de severidade (Baixa, Média, Alta) de acordo com a terminologia técnica nacional.
-    2. **Causa Provável:** Análise técnica fundamentada, relacionando o aspeto visual com a ação do tráfego e os fatores climáticos locais.
-    3. **Método de Reparação Recomendado (Normas LNEC/IP):** Procedimento passo a passo adaptado à classe de tráfego (ex: profundidade de fresagem, necessidade de ligantes modificados com polímeros, betão betuminoso AC surf/binder).
-    4. **Manutenção Preventiva / Corretiva Futura:** Recomendações de drenagem, selagem e preservação específicas para as condições do clima local.
-    5. **Materiais e Equipamentos Necessários:** Especificações técnicas dos materiais (ex: classe de penetração do betume 35/50 ou 50/70, emulsão C60B3) ajustados ao tráfego e clima.
-    6. **Estimativa de Custos:** Baseada na área fornecida, aplicando preços médios de mercado em Portugal."""
+    Gera um relatório técnico detalhado em Markdown com a seguinte estrutura:
+    1. **Cabeçalho Técnico:** Incluindo obrigatoriamente a Data de Avaliação: {data_envio} e as Coordenadas GPS fornecidas.
+    2. **Identificação da Patologia:** Nome técnico e nível de severidade (Baixa, Média, Alta).
+    3. **Causa Provável:** Análise técnica fundamentada tendo em conta a ação do tráfego e o clima local da região.
+    4. **Método de Reparação Recomendado (Normas LNEC/IP):** Procedimento passo a passo alinhado com as especificações nacionais.
+    5. **Manutenção Preventiva / Corretiva Futura:** Recomendações específicas para preservação da infraestrutura.
+    6. **Materiais e Equipamentos Necessários:** Especificações técnicas reais dos materiais (ex: betume 35/50 ou 50/70, emulsão C60B3).
+    7. **Estimativa de Custos:** Baseada estritamente na área fornecida, aplicando preços médios de mercado em Portugal."""
 
-  prompt = f"""Analisa esta patologia num pavimento betuminoso.
+  prompt = f"""Analisa esta patologia num pavimento betuminoso utilizando apenas os seguintes dados reais e atuais:
+    - Data da Avaliação: {data_envio}
     - Área estimada afetada: {area_m2} m²
     - Classe de Tráfego da via: {classe_trafego}
-    - Localização / Região geográfica: {localizacao} (Considera as condições climáticas típicas desta zona em Portugal)"""
+    - Localização / Coordenadas GPS: {localizacao}"""
 
   response = client.models.generate_content(
       model="gemini-3.8-flash",
@@ -64,12 +113,34 @@ with col1:
   uploaded_file = st.file_uploader(
       "Escolhe uma fotografia...", type=["jpg", "jpeg", "png"]
   )
+
+  # Gestão de Estado para a Área Estimada Automaticamente
+  if "area_estimada" not in st.session_state:
+    st.session_state.area_estimada = 10.0
+
+  if uploaded_file is not None:
+    st.image(
+        uploaded_file, caption="Fotografia da Patologia", use_container_width=True
+    )
+
+    image_bytes = uploaded_file.getvalue()
+    mime_type = uploaded_file.type
+
+    if st.button("🔄 Reestimar Área por IA"):
+      with st.spinner("A estimar área através da imagem..."):
+        st.session_state.area_estimada = estimar_area_por_imagem(
+            image_bytes, mime_type
+        )
+        st.rerun()
+
   area_m2 = st.number_input(
-      "Área estimada da patologia (m²):", min_value=1.0, value=10.0, step=1.0
+      "Área estimada da patologia (m²):",
+      min_value=0.1,
+      value=float(st.session_state.area_estimada),
+      step=0.5,
   )
 
 with col2:
-  # Seleção do Tipo de Tráfego segundo normativas
   opcoes_trafego = [
       "Tráfego Ligeiro / Caminho Agrícola / Loteamento Habitacional (T6/T5)",
       "Tráfego Médio / Estrada Municipal / Arruamento Urbano Principal (T4/T3)",
@@ -80,27 +151,25 @@ with col2:
       "Tipo de Tráfego / Categoria da Via:", opcoes_trafego
   )
 
-  # Localização para contextuar dados climáticos (predefinido para Évora/Alentejo)
-  localizacao = st.text_input(
-      "Localização do Pavimento (Região / Concelho):",
-      value="Évora, Alentejo Central",
+  st.text_input(
+      "Localização Detetada (GPS do Dispositivo):", value=localizacao_str
   )
+  st.info(f"📅 Data da Análise (Sistema): {data_atual}")
 
 if uploaded_file is not None:
-  st.image(
-      uploaded_file, caption="Fotografia da Patologia", use_container_width=True
-  )
-
   if st.button("Gerar Relatório Técnico Completo (LNEC / IP)"):
     with st.spinner(
-        "A analisar a imagem, cruzando dados de tráfego e condições climáticas"
-        " locais..."
+        "A processar imagem, coordenadas GPS, data real e especificações"
+        " LNEC/IP..."
     ):
-      image_bytes = uploaded_file.getvalue()
-      mime_type = uploaded_file.type
       try:
         relatorio = analisar_patologia(
-            image_bytes, mime_type, area_m2, classe_trafego, localizacao
+            image_bytes,
+            mime_type,
+            area_m2,
+            classe_trafego,
+            localizacao_str,
+            data_atual,
         )
         st.markdown("---")
         st.markdown("### Relatório Técnico e Orçamental Adaptado")
