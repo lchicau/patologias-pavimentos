@@ -7,16 +7,16 @@ from streamlit_geolocation import streamlit_geolocation
 
 # Configuração da página
 st.set_page_config(
-    page_title="Agente IA de identificação de patologias em pavimentos flexíveis", page_icon="🛣️", layout="wide"
+    page_title="Agente Especialista de Pavimentos", page_icon="🛣️", layout="wide"
 )
 
 st.title(
-    "🛣️ IA de identificação de patologias em pavimentos flexíveis (Normas LNEC/IP)"
+    "🛣️ Agente Especialista de Pavimentos (Motor Autónomo Normativo LNEC / IP)"
 )
 st.write(
-    "Agende de Inteligência Artificial criado com base nas normas portuguesas (LNEC,"
+    "Sistema autónomo criado de raiz com base nas normas portuguesas (LNEC,"
     " JAE, IP). Cálculos baseados em parâmetros reais de engenharia, sem"
-    " localizações predefinidas nem valores arbitrários."
+    " localizações predefinidas."
 )
 
 # 1. Obter a localização automática do dispositivo (GPS)
@@ -41,8 +41,9 @@ else:
       "GPS inativo ou não permitido. Nenhuma localização pré-definida aplicada."
   )
 
-# Data atual do sistema
-data_atual = datetime.now().strftime("%d/%M/%Y")
+# Data atual do sistema obtida de forma blindada (DD/MM/AAAA)
+agora = datetime.now()
+data_atual = f"{agora.day:02d}/{agora.month:02d}/{agora.year}"
 
 
 # --- CLASSE DO AGENTE ESPECIALISTA (CÁLCULO PARAMÉTRICO REAL) ---
@@ -87,7 +88,7 @@ class AgenteEspecialistaPavimentos:
 
   def calcular_reparacao(self):
     if self.severidade == "Alta" or "Buracos" in self.patologia:
-      espessura_cm = 6.0  # 6 cm de espessura de intervenção estrutural
+      espessura_cm = 6.0
       espessura_str = "6 cm"
       camada_aplicacao = (
           "Fresagem de 6 cm, varrimento mecânico, aplicação de emulsão"
@@ -96,7 +97,7 @@ class AgenteEspecialistaPavimentos:
           " PmB 45/80-50."
       )
     else:
-      espessura_cm = 4.0  # 4 cm de espessura para manutenção corrente
+      espessura_cm = 4.0
       espessura_str = "4 cm"
       camada_aplicacao = (
           "Fresagem de desbastamento de 4 cm, rega de colagem com emulsão"
@@ -109,18 +110,12 @@ class AgenteEspecialistaPavimentos:
     espessura_cm, _, _ = self.calcular_reparacao()
     espessura_m = espessura_cm / 100.0
 
-    # 1. Cálculo volumétrico e mas sico (Densidade média do betão bituminoso compactado = 2.45 t/m³)
     volume_m3 = self.area_m2 * espessura_m
     massa_ton = volume_m3 * 2.45
 
-    # 2. Custos calculados com base em parâmetros de mercado em Portugal (sem valores cegos)
-    # Custo de fresagem por m² por cm de espessura (inclui carregamento e transporte de fresado)
     custo_fresagem = self.area_m2 * espessura_cm * 1.10
-    # Custo de fornecimento, espalhamento e compactação de mistura bituminosa por tonelada (inclui betume e transporte)
     custo_mistura = massa_ton * 95.00
-    # Custo de emulsão betuminosa C60B3 por m²
     custo_emulsao = self.area_m2 * 1.65
-    # Custo de sinalização temporária e segurança de obra
     custo_seguranca = 120.00
 
     custo_total = (
@@ -143,39 +138,37 @@ class AgenteEspecialistaPavimentos:
     vol, massa, tf, tm, te, ts, total = self.calcular_orcamento_parametrico()
 
     relatorio = f"""### RELATÓRIO TÉCNICO DE INSPEÇÃO E REABILITAÇÃO DE PAVIMENTOS
-**Normas de Referência:** Manual de Concepção de Pavimentos do LNEC / Cadernos de Encargos Tipo da IP
-
 #### 1. Cabeçalho Técnico
-- **Data da Avaliação:** {self.data}
-- **Localização / Coordenadas:** {self.localizacao}
-- **Área Afetada Intervenção:** {self.area_m2} m²
-- **Categoria de Tráfego:** {self.classe_trafego}
+- Data da Avaliação: {self.data}
+- Localização / Coordenadas: {self.localizacao}
+- Área Afetada Intervenção: {self.area_m2} m²
+- Categoria de Tráfego: {self.classe_trafego}
 
 #### 2. Identificação da Patologia e Severidade
-- **Tipologia:** {self.patologia}
-- **Nível de Severidade:** {self.severidade}
-- **Diagnóstico Técnico:** {diag}
+- Tipologia: {self.patologia}
+- Nível de Severidade: {self.severidade}
+- Diagnóstico Técnico: {diag}
 
 #### 3. Análise de Causas Prováveis
-- A patologia decorre da conjugação entre as solicitações impostas pelo tráfego ({self.classe_trafego}) e a suscetibilidade térmica/pluviométrica da região, provocando fadiga ou deformação plástica nas camadas betuminosas.
+A patologia decorre da conjugação entre as solicitações impostas pelo tráfego ({self.classe_trafego}) e a suscetibilidade térmica/pluviométrica da região, provocando fadiga ou deformação plástica nas camadas betuminosas.
 
 #### 4. Método de Reparação Recomendado (Normas LNEC / IP)
-- **Espessura de Intervenção:** {espessura_str}
-- **Procedimento Executivo:** {metodo}
+- Espessura de Intervenção: {espessura_str}
+- Procedimento Executivo: {metodo}
 
 #### 5. Materiais e Equipamentos Necessários
-- **Emulsão Betuminosa:** Emulsão catiónica de rotura rápida C60B3.
-- **Mistura Bituminosa:** Betão bituminoso a quente (AC 14 surf).
-- **Equipamentos:** Fresadora autopropulsada, vassoura mecânica, cilindro compactador de pneus e cilindro metálico vibratório.
+- Emulsão Betuminosa: Emulsão catiónica de rotura rápida C60B3.
+- Mistura Bituminosa: Betão bituminoso a quente (AC 14 surf).
+- Equipamentos: Fresadora autopropulsada, vassoura mecânica, cilindro compactador de pneus e cilindro metálico vibratório.
 
 #### 6. Estimativa Orçamental Paramétrica (Cálculo com Base em Quantidades)
-- **Volume de Material a Fresar:** {vol:.2f} m³
-- **Massa de Mistura Bituminosa Necessária:** {massa:.2f} toneladas
-- **Fresagem de Pavimento:** {tf:.2f} €
-- **Fornecimento e Aplicação de Mistura Bituminosa (AC 14 surf):** {tm:.2f} €
-- **Rega de Colagem (Emulsão C60B3):** {te:.2f} €
-- **Sinalização Temporária e Segurança Local:** {ts:.2f} €
-- **ESTIMATIVA ORÇAMENTAL TOTAL:** **{total:.2f} €** (IVA não incluído)
+- Volume de Material a Fresar: {vol:.2f} m³
+- Massa de Mistura Bituminosa Necessária: {massa:.2f} toneladas
+- Fresagem de Pavimento: {tf:.2f} €
+- Fornecimento e Aplicação de Mistura Bituminosa (AC 14 surf): {tm:.2f} €
+- Rega de Colagem (Emulsão C60B3): {te:.2f} €
+- Sinalização Temporária e Segurança Local: {ts:.2f} €
+- ESTIMATIVA ORÇAMENTAL TOTAL: {total:.2f} € (IVA não incluído)
 
 #### 7. Recomendações de Manutenção Preventiva
 - Monitorização semestral após a intervenção para deteção precoce de fissuração de junta.
@@ -184,48 +177,93 @@ class AgenteEspecialistaPavimentos:
     return relatorio
 
 
-# --- CLASSE PDF ---
+# --- CLASSE PDF PROFISSIONAL COM MARGENS RIGOROSAS ---
 class PDF(FPDF):
 
   def header(self):
-    self.set_font("helvetica", "B", 11)
+    self.set_font("helvetica", "B", 10)
+    self.set_text_color(20, 50, 90)
     self.cell(
         0,
-        10,
-        "Relatório Técnico - Motor Autónomo de Pavimentos (LNEC/IP)",
+        6,
+        "RELATÓRIO TÉCNICO DE INSPEÇÃO E REABILITAÇÃO DE PAVIMENTOS",
         0,
         1,
         "C",
     )
-    self.ln(3)
+    self.set_font("helvetica", "I", 8)
+    self.set_text_color(100, 100, 100)
+    self.cell(
+        0,
+        5,
+        "Normas LNEC / IP - Motor Autónomo de Engenharia Civil",
+        0,
+        1,
+        "C",
+    )
+    self.ln(4)
 
   def footer(self):
     self.set_y(-12)
     self.set_font("helvetica", "I", 8)
-    self.cell(0, 10, f"Página {self.page_no()}", 0, 0, "C")
+    self.set_text_color(120, 120, 120)
+    self.cell(
+        0,
+        10,
+        f"Página {self.page_no()} | Processado por Motor Autónomo de Engenharia",
+        0,
+        0,
+        "C",
+    )
 
 
 def gerar_pdf_relatorio(texto_relatorio):
   pdf = PDF(orientation="P", unit="mm", format="A4")
   pdf.set_auto_page_break(auto=True, margin=15)
   pdf.add_page()
-  pdf.set_left_margin(10)
-  pdf.set_right_margin(10)
-  pdf.set_font("helvetica", size=9)
-  largura_util = 190
+
+  pdf.set_left_margin(15)
+  pdf.set_right_margin(15)
+  largura_util = 180
 
   for linha in texto_relatorio.split("\n"):
-    linha_limpa = (
-        linha.replace("**", "").replace("#", "").replace("###", "").strip()
-    )
-    if linha_limpa == "":
-      pdf.ln(3)
-    else:
-      pdf.multi_cell(
+    linha_limpa = linha.strip()
+
+    if linha_limpa.startswith("### "):
+      continue
+
+    if linha_limpa.startswith("#### "):
+      pdf.ln(4)
+      pdf.set_font("helvetica", "B", 10)
+      pdf.set_text_color(20, 50, 90)
+      titulo = linha_limpa.replace("#### ", "").replace("**", "")
+      pdf.cell(
           largura_util,
-          5,
-          linha_limpa.encode("latin-1", "replace").decode("latin-1"),
+          6,
+          titulo.encode("latin-1", "replace").decode("latin-1"),
+          0,
+          1,
+          "L",
       )
+      pdf.set_font("helvetica", size=9)
+      pdf.set_text_color(0, 0, 0)
+    elif linha_limpa.startswith("- "):
+      pdf.set_font("helvetica", size=9)
+      pdf.set_text_color(0, 0, 0)
+      item = "  * " + linha_limpa.replace("- ", "").replace("**", "")
+      pdf.multi_cell(
+          largura_util, 5, item.encode("latin-1", "replace").decode("latin-1")
+      )
+    elif linha_limpa != "":
+      pdf.set_font("helvetica", size=9)
+      pdf.set_text_color(0, 0, 0)
+      texto = linha_limpa.replace("**", "")
+      pdf.multi_cell(
+          largura_util, 5, texto.encode("latin-1", "replace").decode("latin-1")
+      )
+    else:
+      pdf.ln(2)
+
   return bytes(pdf.output())
 
 
@@ -282,7 +320,7 @@ with col2:
 if uploaded_file is not None:
   if st.button("Gerar Relatório Técnico Autónomo (LNEC / IP)"):
     with st.spinner(
-        "A calcular parâmetros de engenharia e orçamento paramétrico..."
+        "A calcular parâmetros de engenharia e a gerar PDF estruturado..."
     ):
       try:
         agente = AgenteEspecialistaPavimentos(
