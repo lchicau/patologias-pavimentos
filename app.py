@@ -18,8 +18,8 @@ st.title(
 )
 st.write(
     "Carrega a fotografia de uma patologia. O agente obtém a tua localização"
-    " real com mapa interativo, a data do sistema e gera o relatório técnico"
-    " com PDF formatado."
+    " real, mapa interativo, data do sistema e gera o relatório técnico com"
+    " PDF otimizado."
 )
 
 # Inicializar o cliente Gemini
@@ -38,7 +38,6 @@ if loc and loc.get("latitude") and loc.get("longitude"):
   )
   st.sidebar.success("Localização obtida com sucesso!")
 
-  # Criar dataframe e mostrar mapa interativo na barra lateral
   df_mapa = pd.DataFrame({"lat": [lat], "lon": [lon]})
   st.sidebar.map(df_mapa, zoom=15, use_container_width=True)
 else:
@@ -50,6 +49,38 @@ else:
 data_atual = datetime.now().strftime("%d/%m/%Y")
 
 
+# Função segura com múltiplos modelos de fallback (evita erros 503)
+def chamar_gemini_com_fallback(
+    imagem_bytes, mime_type, prompt, system_instruction=None
+):
+  modelos_a_tentar = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
+
+  config = types.GenerateContentConfig(temperature=0.2)
+  if system_instruction:
+    config.system_instruction = system_instruction
+
+  for modelo in modelos_a_tentar:
+    try:
+      response = client.models.generate_content(
+          model=modelo,
+          contents=[
+              types.Part.from_bytes(data=imagem_bytes, mime_type=mime_type),
+              prompt,
+          ],
+          config=config,
+      )
+      return response.text
+    except Exception as e:
+      if "503" in str(e) or "UNAVAILABLE" in str(e) or "NOT_FOUND" in str(e):
+        continue
+      else:
+        raise e
+  raise Exception(
+      "Os servidores estão temporariamente sobrecarregados. Por favor, tenta"
+      " novamente em instantes."
+  )
+
+
 # Função para estimar a área com base na imagem
 def estimar_area_por_imagem(imagem_bytes, mime_type):
   prompt = (
@@ -58,57 +89,58 @@ def estimar_area_por_imagem(imagem_bytes, mime_type):
       " Responde apenas com o valor numérico (ex: 12.5), sem texto adicional."
   )
   try:
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=[
-            types.Part.from_bytes(data=imagem_bytes, mime_type=mime_type),
-            prompt,
-        ],
-        config=types.GenerateContentConfig(temperature=0.1),
-    )
-    nums = re.findall(r"\d+\.?\d*", response.text)
+    texto_resposta = chamar_gemini_com_fallback(imagem_bytes, mime_type, prompt)
+    nums = re.findall(r"\d+\.?\d*", texto_resposta)
     return float(nums[0]) if nums else 10.0
   except Exception:
     return 10.0
 
 
-# Classe para construção do PDF estruturado
+# Classe PDF robusta com margens seguras para evitar erros de renderização
 class PDF(FPDF):
 
   def header(self):
-    self.set_font("helvetica", "B", 12)
+    self.set_font("helvetica", "B", 11)
     self.cell(
         0, 10, "Relatório Técnico - Inspeção de Pavimentos (LNEC/IP)", 0, 1, "C"
     )
-    self.ln(5)
+    self.ln(3)
 
   def footer(self):
-    self.set_y(-15)
+    self.set_y(-12)
     self.set_font("helvetica", "I", 8)
     self.cell(0, 10, f"Página {self.page_no()}", 0, 0, "C")
 
 
 def gerar_pdf_relatorio(texto_relatorio):
-  pdf = PDF()
+  pdf = PDF(orientation="P", unit="mm", format="A4")
+  pdf.set_auto_page_break(auto=True, margin=15)
   pdf.add_page()
-  pdf.set_font("helvetica", size=10)
+
+  # Definir margens seguras (10mm esquerda e direita)
+  pdf.set_left_margin(10)
+  pdf.set_right_margin(10)
+  pdf.set_font("helvetica", size=9)
+
+  # Largura útil exata da página A4 (210mm - 20mm de margens = 190mm)
+  largura_util = 190
 
   for linha in texto_relatorio.split("\n"):
     linha_limpa = (
         linha.replace("**", "").replace("#", "").replace("###", "").strip()
     )
     if linha_limpa == "":
-      pdf.ln(4)
+      pdf.ln(3)
     else:
       pdf.multi_cell(
-          0,
-          6,
+          largura_util,
+          5,
           linha_limpa.encode("latin-1", "replace").decode("latin-1"),
       )
   return bytes(pdf.output())
 
 
-# Função principal de análise técnica com restrição estricta de dados reais
+# Função principal de análise técnica
 def analisar_patologia(
     imagem_bytes, mime_type, area_m2, classe_trafego, localizacao, data_envio
 ):
@@ -134,18 +166,9 @@ def analisar_patologia(
     - Classe de Tráfego da via: {classe_trafego}
     - Localização / Coordenadas GPS: {localizacao}"""
 
-  response = client.models.generate_content(
-      model="gemini-3.8-flash",
-      contents=[
-          types.Part.from_bytes(data=imagem_bytes, mime_type=mime_type),
-          prompt,
-      ],
-      config=types.GenerateContentConfig(
-          system_instruction=system_instruction,
-          temperature=0.2,
-      ),
+  return chamar_gemini_com_fallback(
+      imagem_bytes, mime_type, prompt, system_instruction
   )
-  return response.text
 
 
 # Interface do Utilizador
