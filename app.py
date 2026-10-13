@@ -14,13 +14,11 @@ st.set_page_config(
 )
 
 st.title(
-    "🛣️ Agente de Diagnóstico e Reabilitação de Pavimentos (Arquitetura Multi-Agente"
-    " LNEC / IP)"
+    "🛣️ Agente de Diagnóstico e Reabilitação de Pavimentos (Normas LNEC / IP)"
 )
 st.write(
-    "Carrega a fotografia. Uma equipa de sub-agentes especializados (Inspetor,"
-    " Normativo, Orçamentista e Sintetizador) trabalhará em conjunto para gerar"
-    " o relatório técnico e o PDF."
+    "Carrega a fotografia. O sistema executa a análise integrada multi-perspetiva"
+    " num único pedido otimizado para poupar cota da API."
 )
 
 # Inicializar o cliente Gemini
@@ -50,7 +48,7 @@ else:
 data_atual = datetime.now().strftime("%d/%m/%Y")
 
 
-# Função segura com múltiplos modelos de fallback (evita erros 503)
+# Função segura com múltiplos modelos de fallback (evita erros 503 e otimiza chamadas)
 def chamar_gemini_com_fallback(
     prompt, imagem_bytes=None, mime_type=None, system_instruction=None
 ):
@@ -72,13 +70,18 @@ def chamar_gemini_com_fallback(
       )
       return response.text
     except Exception as e:
-      if "503" in str(e) or "UNAVAILABLE" in str(e) or "NOT_FOUND" in str(e):
+      if (
+          "503" in str(e)
+          or "UNAVAILABLE" in str(e)
+          or "NOT_FOUND" in str(e)
+          or "429" in str(e)
+      ):
         continue
       else:
         raise e
   raise Exception(
-      "Os servidores estão temporariamente sobrecarregados. Por favor, tenta"
-      " novamente em instantes."
+      "Limite de quota atingido ou servidores sobrecarregados. Por favor,"
+      " aguarda alguns minutos."
   )
 
 
@@ -99,97 +102,13 @@ def estimar_area_por_imagem(imagem_bytes, mime_type):
     return 10.0
 
 
-# --- PIPELINE DE SUB-AGENTES ESPECIALIZADOS ---
-
-
-def sub_agente_inspetor(imagem_bytes, mime_type):
-  """Sub-Agente 1: Focado exclusivamente na identificação visual e severidade."""
-  system_instruction = (
-      "Tu és o Agente Inspetor de Visão Artificial especializado em patologias"
-      " de pavimentos betuminosos. O teu único trabalho é identificar"
-      " tecnicamente a patologia presente na imagem e avaliar o nível de"
-      " severidade (Baixa, Média, Alta)."
-  )
-  prompt = (
-      "Identifica a patologia apresentada e avalia o nível de severidade com"
-      " rigor técnico."
-  )
-  return chamar_gemini_com_fallback(
-      prompt, imagem_bytes, mime_type, system_instruction
-  )
-
-
-def sub_agente_normativo(diagnostico_inspetor, classe_trafego, localizacao):
-  """Sub-Agente 2: Aplica especificações técnicas LNEC / IP e clima."""
-  system_instruction = (
-      "Tu és o Agente Normativo e Especialista em Vias de Comunicação. Tens"
-      " profundo conhecimento das normas do LNEC, antiga JAE e Infraestruturas"
-      " de Portugal (IP). O teu trabalho é definir a causa provável e o método"
-      " de reparação exato (espessuras de fresagem, ligantes, camadas de"
-      " desgaste) tendo em conta a classe de tráfego e o clima da região."
-  )
-  prompt = f"""Com base no seguinte diagnóstico visual do Inspetor:
-    {diagnostico_inspetor}
-    
-    E considerando:
-    - Classe de Tráfego: {classe_trafego}
-    - Localização / Clima: {localizacao}
-    
-    Define a causa provável e o método de reparação em conformidade com as normas LNEC/IP."""
-  return chamar_gemini_com_fallback(prompt, system_instruction=system_instruction)
-
-
-def sub_agente_orcamentista(metodo_reparacao, area_m2):
-  """Sub-Agente 3: Calcula quantidades e custos de mercado em Portugal."""
-  system_instruction = (
-      "Tu és o Agente Orçamentista de Obras Rodoviárias em Portugal. O teu"
-      " trabalho é calcular os materiais necessários (betume, emulsão,"
-      " misturas betuminosas) e estimar os custos em euros com base na área"
-      " fornecida e nos preços médios atuais de mercado."
-  )
-  prompt = f"""Com base no seguinte método de reparação:
-    {metodo_reparacao}
-    
-    E na área afetada de {area_m2} m², calcula os materiais necessários e apresenta uma estimativa orçamental detalhada em Portugal."""
-  return chamar_gemini_com_fallback(prompt, system_instruction=system_instruction)
-
-
-def sub_agente_sintetizador(
-    diagnostico,
-    normas,
-    orcamento,
-    data_envio,
-    localizacao,
-    area_m2,
-    classe_trafego,
-):
-  """Sub-Agente 4: Compila tudo num relatório final estruturado."""
-  system_instruction = (
-      "Tu és o Agente Coordenador e Sintetizador de Relatórios Técnicos. Deves"
-      " compilar a informação dos sub-agentes num relatório final em Markdown"
-      " limpo, profissional e estruturado para engenharia."
-  )
-  prompt = f"""Compila os dados recolhidos pelos sub-agentes num relatório técnico final com a seguinte estrutura exata:
-    1. **Cabeçalho Técnico:** Data de Avaliação: {data_envio} | Coordenadas GPS: {localizacao} | Área: {area_m2} m² | Tráfego: {classe_trafego}
-    2. **Diagnóstico e Severidade:** (Resumo do Inspetor) {diagnostico}
-    3. **Análise de Causas e Reabilitação (Normas LNEC/IP):** (Resumo Normativo) {normas}
-    4. **Orçamentação e Materiais:** (Resumo Orçamentista) {orcamento}
-    5. **Recomendações de Manutenção Preventiva.**"""
-  return chamar_gemini_com_fallback(prompt, system_instruction=system_instruction)
-
-
 # --- CLASSE PDF ---
 class PDF(FPDF):
 
   def header(self):
     self.set_font("helvetica", "B", 11)
     self.cell(
-        0,
-        10,
-        "Relatório Técnico Multi-Agente - Inspeção de Pavimentos (LNEC/IP)",
-        0,
-        1,
-        "C",
+        0, 10, "Relatório Técnico - Inspeção de Pavimentos (LNEC/IP)", 0, 1, "C"
     )
     self.ln(3)
 
@@ -221,6 +140,37 @@ def gerar_pdf_relatorio(texto_relatorio):
           linha_limpa.encode("latin-1", "replace").decode("latin-1"),
       )
   return bytes(pdf.output())
+
+
+# Função de Análise Integrada (Substitui múltiplas chamadas por uma única altamente estruturada)
+def analisar_patologia_integrada(
+    imagem_bytes, mime_type, area_m2, classe_trafego, localizacao, data_envio
+):
+  system_instruction = f"""Tu és uma equipa multidisciplinar de engenharia rodoviária em Portugal, englobando um Agente Inspetor (Visão), um Agente Normativo (especialista LNEC, antiga JAE e Infraestruturas de Portugal - IP) e um Agente Orçamentista.
+
+    REGRAS OBRIGATÓRIAS E INEGOCIÁVEIS:
+    1. Utiliza RIGOROSAMENTE a Data de Avaliação fornecida ({data_envio}). É estritamente proibido inventar datas.
+    2. Considera o contexto climático e geográfico da localização exata obtida por GPS fornecida.
+    3. Executa a análise combinada (Diagnóstico Visual -> Reabilitação Normativa LNEC/IP -> Quantidades e Custos de Mercado) num único relatório detalhado em Markdown.
+
+    Estrutura obrigatória do relatório:
+    1. **Cabeçalho Técnico:** Data de Avaliação: {data_envio} | Coordenadas GPS: {localizacao} | Área: {area_m2} m² | Tráfego: {classe_trafego}
+    2. **Diagnóstico e Nível de Severidade:** Identificação técnica da patologia e grau de urgência.
+    3. **Causa Provável:** Análise fundamentada cruzando tráfego e clima local.
+    4. **Método de Reparação Recomendado (Normas LNEC/IP):** Procedimento passo a passo alinhado com as especificações nacionais.
+    5. **Materiais e Equipamentos Necessários:** Especificações técnicas reais dos materiais (ex: betume 35/50 ou 50/70, emulsão C60B3).
+    6. **Estimativa de Custos:** Baseada estritamente na área de {area_m2} m², aplicando preços médios de mercado em Portugal.
+    7. **Manutenção Preventiva / Corretiva Futura.**"""
+
+  prompt = f"""Analisa esta patologia num pavimento betuminoso utilizando apenas os seguintes dados reais e atuais:
+    - Data da Avaliação: {data_envio}
+    - Área estimada afetada: {area_m2} m²
+    - Classe de Tráfego da via: {classe_trafego}
+    - Localização / Coordenadas GPS: {localizacao}"""
+
+  return chamar_gemini_com_fallback(
+      prompt, imagem_bytes, mime_type, system_instruction
+  )
 
 
 # --- INTERFACE DO UTILIZADOR ---
@@ -273,51 +223,35 @@ with col2:
   st.info(f"📅 Data da Análise (Sistema): {data_atual}")
 
 if uploaded_file is not None:
-  if st.button("Gerar Relatório Técnico Multi-Agente (LNEC / IP)"):
-    # Execução do Pipeline Multi-Agente com feedback visual por etapas
-    try:
-      with st.spinner("🔍 Agente Inspetor a analisar imagem e patologia..."):
-        diag_inspetor = sub_agente_inspetor(image_bytes, mime_type)
-
-      with st.spinner(
-          "📚 Agente Normativo a cruzar com normas LNEC/IP e clima..."
-      ):
-        prescricao_normas = sub_agente_normativo(
-            diag_inspetor, classe_trafego, localizacao_str
-        )
-
-      with st.spinner(
-          "💰 Agente Orçamentista a calcular volumes e custos em Portugal..."
-      ):
-        orcamento = sub_agente_orcamentista(prescricao_normas, area_m2)
-
-      with st.spinner(
-          "📋 Agente Sintetizador a compilar o relatório técnico final..."
-      ):
-        relatorio_final = sub_agente_sintetizador(
-            diag_inspetor,
-            prescricao_normas,
-            orcamento,
-            data_atual,
-            localizacao_str,
+  if st.button("Gerar Relatório Técnico Integrado (LNEC / IP)"):
+    with st.spinner(
+        "A processar análise multidisciplinar (Inspetor, Normativo e"
+        " Orçamentista)..."
+    ):
+      try:
+        relatorio_final = analisar_patologia_integrada(
+            image_bytes,
+            mime_type,
             area_m2,
             classe_trafego,
+            localizacao_str,
+            data_atual,
         )
 
-      st.markdown("---")
-      st.markdown("### Relatório Técnico Multi-Agente (LNEC / IP)")
-      st.markdown(relatorio_final)
+        st.markdown("---")
+        st.markdown("### Relatório Técnico e Orçamental (LNEC / IP)")
+        st.markdown(relatorio_final)
 
-      timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
-      pdf_filename = f"{timestamp_str}_PDRV.pdf"
-      pdf_bytes = gerar_pdf_relatorio(relatorio_final)
+        timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
+        pdf_filename = f"{timestamp_str}_PDRV.pdf"
+        pdf_bytes = gerar_pdf_relatorio(relatorio_final)
 
-      st.download_button(
-          label="📥 Descarregar Relatório em PDF",
-          data=pdf_bytes,
-          file_name=pdf_filename,
-          mime="application/pdf",
-      )
+        st.download_button(
+            label="📥 Descarregar Relatório em PDF",
+            data=pdf_bytes,
+            file_name=pdf_filename,
+            mime="application/pdf",
+        )
 
-    except Exception as e:
-      st.error(f"Erro no pipeline multi-agente: {e}")
+      except Exception as e:
+        st.error(f"Erro ao processar o relatório: {e}")
