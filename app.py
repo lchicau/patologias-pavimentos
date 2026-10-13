@@ -1,6 +1,7 @@
 from datetime import datetime
 import os
 import re
+from fpdf import FPDF
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -17,7 +18,7 @@ st.title(
 st.write(
     "Carrega a fotografia de uma patologia. O agente obtém a tua localização"
     " atual, a data real do sistema e gera o relatório técnico com dados"
-    " rigorosos e atuais."
+    " rigorosos e atuais, permitindo o download direto em PDF."
 )
 
 # Inicializar o cliente Gemini
@@ -64,6 +65,43 @@ def estimar_area_por_imagem(imagem_bytes, mime_type):
     return float(nums[0]) if nums else 10.0
   except Exception:
     return 10.0
+
+
+# Classe para construção do PDF estruturado
+class PDF(FPDF):
+
+  def header(self):
+    self.set_font("helvetica", "B", 12)
+    self.cell(
+        0, 10, "Relatório Técnico - Inspeção de Pavimentos (LNEC/IP)", 0, 1, "C"
+    )
+    self.ln(5)
+
+  def footer(self):
+    self.set_y(-15)
+    self.set_font("helvetica", "I", 8)
+    self.cell(0, 10, f"Página {self.page_no()}", 0, 0, "C")
+
+
+def gerar_pdf_relatorio(texto_relatorio):
+  pdf = PDF()
+  pdf.add_page()
+  pdf.set_font("helvetica", size=10)
+
+  # Limpar formatação markdown básica para apresentação limpa no PDF
+  for linha in texto_relatorio.split("\n"):
+    linha_limpa = (
+        linha.replace("**", "").replace("#", "").replace("###", "").strip()
+    )
+    if linha_limpa == "":
+      pdf.ln(4)
+    else:
+      pdf.multi_cell(
+          0,
+          6,
+          linha_limpa.encode("latin-1", "replace").decode("latin-1"),
+      )
+  return bytes(pdf.output())
 
 
 # Função principal de análise técnica com restrição estricta de dados reais
@@ -174,5 +212,21 @@ if uploaded_file is not None:
         st.markdown("---")
         st.markdown("### Relatório Técnico e Orçamental Adaptado")
         st.markdown(relatorio)
+
+        # Gerar o nome do ficheiro PDF com o formato AAAAMMDDHHMMSS_PDRV.pdf
+        timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
+        pdf_filename = f"{timestamp_str}_PDRV.pdf"
+
+        # Converter o relatório gerado em PDF
+        pdf_bytes = gerar_pdf_relatorio(relatorio)
+
+        # Disponibilizar botão de download direto
+        st.download_button(
+            label="📥 Descarregar Relatório em PDF",
+            data=pdf_bytes,
+            file_name=pdf_filename,
+            mime="application/pdf",
+        )
+
       except Exception as e:
         st.error(f"Erro ao processar a imagem: {e}")
